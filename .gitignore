@@ -1,0 +1,14 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime logs and active telemetry database
+data/*.bin
+data/*.lock
+*.log
+widget.log
+
+# Operating System files
+.DS_Store
+Thumbs.db

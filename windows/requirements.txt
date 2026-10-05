@@ -1,0 +1,12 @@
+# Power & Memory Sentry - Windows 10
+#
+# ZERO MANDATORY DEPENDENCIES!
+# The core application runs 100% using Python's built-in standard library:
+#   - ctypes (kernel32, psapi for native memory, CPU, battery, power status)
+#   - tkinter (GUI floating widget)
+#   - struct (compact 64-byte binary telemetry logging)
+#   - msvcrt (Windows non-blocking file locks and FlushFileBuffers)
+#
+# Optional Enhancements (Automatically detected if installed):
+# wmi>=1.5.1               # For enhanced motherboard/ACPI thermal zone readings
+# psutil>=5.9.0            # Alternative sensor backend for CPU/battery
