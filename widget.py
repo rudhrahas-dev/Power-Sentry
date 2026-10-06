@@ -727,43 +727,43 @@ class FloatingMonitorWidget:
 
 
     def on_quick_shutdown(self):
-        """Prompt for exactly 1 confirmation then immediately power off the system."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Quick Shutdown")
-        dialog.configure(bg=BG_DARK)
-        dialog.resizable(False, False)
-        dialog.wm_attributes("-topmost", True)
-        dialog.transient(self.root)
+        """Display an in-widget confirmation overlay (immune to window manager z-index bugs)."""
+        # If minimized to pill, restore to full view first
+        if self.is_minimized_to_pill:
+            self.toggle_minimize_pill()
 
-        # Center modal over main widget
-        dw, dh = 340, 195
-        rx = self.root.winfo_x()
-        ry = self.root.winfo_y()
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        target_x = max(10, min(rx + 5, sw - dw - 10))
-        target_y = max(40, min(ry + 80, sh - dh - 20))
-        dialog.geometry(f"{dw}x{dh}+{target_x}+{target_y}")
+        # If overlay already exists, don't spawn duplicate
+        if hasattr(self, '_shutdown_overlay') and self._shutdown_overlay.winfo_exists():
+            return
 
-        frame = tk.Frame(dialog, bg=BG_DARK, padx=16, pady=16, highlightthickness=2, highlightbackground="#e74c3c")
-        frame.pack(fill=tk.BOTH, expand=True)
+        self._shutdown_overlay = tk.Frame(
+            self.main_frame,
+            bg=BG_DARK,
+            highlightthickness=2,
+            highlightbackground="#e74c3c"
+        )
+        self._shutdown_overlay.place(relx=0.03, rely=0.18, relwidth=0.94, relheight=0.68)
 
-        lbl_title = tk.Label(
-            frame,
+        pad_frame = tk.Frame(self._shutdown_overlay, bg=BG_DARK, padx=12, pady=14)
+        pad_frame.pack(fill=tk.BOTH, expand=True)
+
+        lbl_hdr = tk.Label(
+            pad_frame,
             text="🛑 INSTANT SYSTEM SHUTDOWN",
             font=("DejaVu Sans", 10, "bold"),
             fg="#e74c3c",
             bg=BG_DARK
         )
-        lbl_title.pack(anchor="w", pady=(0, 6))
+        lbl_hdr.pack(anchor="w", pady=(0, 8))
 
         msg = (
             "⚠️ WARNING: All unsaved changes will be lost!\n\n"
             "This will sync filesystem buffers and power off\n"
-            "the system immediately without shutdown delays."
+            "the system immediately without shutdown delays.\n\n"
+            "Are you sure you want to shut down now?"
         )
         lbl_msg = tk.Label(
-            frame,
+            pad_frame,
             text=msg,
             font=("DejaVu Sans", 8),
             fg=TEXT_WHITE,
@@ -772,47 +772,44 @@ class FloatingMonitorWidget:
         )
         lbl_msg.pack(anchor="w", pady=(0, 16))
 
-        btn_box = tk.Frame(frame, bg=BG_DARK)
-        btn_box.pack(fill=tk.X)
+        btn_box = tk.Frame(pad_frame, bg=BG_DARK)
+        btn_box.pack(fill=tk.X, side=tk.BOTTOM)
 
-        def do_shutdown():
-            dialog.destroy()
-            self._execute_instant_shutdown()
+        def dismiss():
+            if hasattr(self, '_shutdown_overlay') and self._shutdown_overlay.winfo_exists():
+                self._shutdown_overlay.destroy()
 
         btn_cancel = tk.Button(
             btn_box,
-            text="Cancel",
+            text="✕ Cancel",
             font=("DejaVu Sans", 8, "bold"),
             bg="#2c3e50",
             fg=TEXT_WHITE,
             activebackground="#34495e",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=12,
+            padx=10,
             pady=4,
             cursor="hand2",
-            command=dialog.destroy
+            command=dismiss
         )
         btn_cancel.pack(side=tk.LEFT)
 
         btn_confirm = tk.Button(
             btn_box,
-            text="⚡ Shutdown Immediately",
+            text="⚡ Power Off Now",
             font=("DejaVu Sans", 8, "bold"),
             bg="#c0392b",
             fg=TEXT_WHITE,
             activebackground="#e74c3c",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=12,
+            padx=10,
             pady=4,
             cursor="hand2",
-            command=do_shutdown
+            command=self._execute_instant_shutdown
         )
         btn_confirm.pack(side=tk.RIGHT)
-
-        dialog.grab_set()
-        btn_cancel.focus_set()
 
     def _execute_instant_shutdown(self):
         """Flush disk buffers and trigger fast poweroff bypassing inhibitor delays."""
