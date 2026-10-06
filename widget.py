@@ -38,7 +38,7 @@ class FloatingMonitorWidget:
         self.root.title("Power & Memory Health Monitor")
         
         # Dimensions & position
-        self.width = 345
+        self.width = 370
         self.height = 470
         self.pill_width = 300
         self.pill_height = 36
@@ -303,7 +303,7 @@ class FloatingMonitorWidget:
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=6,
+            padx=4,
             pady=2,
             cursor="hand2",
             command=self.open_analysis_window
@@ -319,23 +319,39 @@ class FloatingMonitorWidget:
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=6,
+            padx=4,
             pady=2,
             cursor="hand2",
             command=self.on_apply_sysctl_profile
         )
-        btn_tune.pack(side=tk.LEFT, padx=(4, 0))
+        btn_tune.pack(side=tk.LEFT, padx=(3, 0))
+
+        btn_shutdown = tk.Button(
+            btn_frame,
+            text="🛑 Power",
+            font=("DejaVu Sans", 8, "bold"),
+            bg="#962d22",
+            fg=TEXT_WHITE,
+            activebackground="#c0392b",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=5,
+            pady=2,
+            cursor="hand2",
+            command=self.on_quick_shutdown
+        )
+        btn_shutdown.pack(side=tk.LEFT, padx=(3, 0))
 
         btn_hide = tk.Button(
             btn_frame,
-            text="─ Minimize",
+            text="─ Min",
             font=("DejaVu Sans", 8),
             bg="#24242d",
             fg=TEXT_MUTED,
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=6,
+            padx=4,
             pady=2,
             cursor="hand2",
             command=self.toggle_minimize_pill
@@ -410,6 +426,7 @@ class FloatingMonitorWidget:
         menu.add_command(label="📌 Toggle Always-on-Top", command=self.toggle_pin)
         menu.add_separator()
         menu.add_command(label="📊 View Analysis Report", command=self.open_analysis_window)
+        menu.add_command(label="🛑 Quick Shutdown (Instant)", command=self.on_quick_shutdown)
         menu.add_command(label="✕ Close Monitor", command=self.on_close)
         menu.tk_popup(event.x_root, event.y_root)
 
@@ -727,6 +744,125 @@ class FloatingMonitorWidget:
             txt.insert(tk.END, "Log file is currently empty or starting up.\nPlease check back after a few minutes of logging.")
         txt.config(state=tk.DISABLED)
 
+
+    def on_quick_shutdown(self):
+        """Prompt for exactly 1 confirmation then immediately power off the system."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Quick Shutdown")
+        dialog.configure(bg=BG_DARK)
+        dialog.resizable(False, False)
+        dialog.wm_attributes("-topmost", True)
+        dialog.transient(self.root)
+
+        # Center modal over main widget
+        dw, dh = 340, 195
+        rx = self.root.winfo_x()
+        ry = self.root.winfo_y()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        target_x = max(10, min(rx + 5, sw - dw - 10))
+        target_y = max(40, min(ry + 80, sh - dh - 20))
+        dialog.geometry(f"{dw}x{dh}+{target_x}+{target_y}")
+
+        frame = tk.Frame(dialog, bg=BG_DARK, padx=16, pady=16, highlightthickness=2, highlightbackground="#e74c3c")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        lbl_title = tk.Label(
+            frame,
+            text="🛑 INSTANT SYSTEM SHUTDOWN",
+            font=("DejaVu Sans", 10, "bold"),
+            fg="#e74c3c",
+            bg=BG_DARK
+        )
+        lbl_title.pack(anchor="w", pady=(0, 6))
+
+        msg = (
+            "⚠️ WARNING: All unsaved changes will be lost!\n\n"
+            "This will sync filesystem buffers and power off\n"
+            "the system immediately without shutdown delays."
+        )
+        lbl_msg = tk.Label(
+            frame,
+            text=msg,
+            font=("DejaVu Sans", 8),
+            fg=TEXT_WHITE,
+            bg=BG_DARK,
+            justify="left"
+        )
+        lbl_msg.pack(anchor="w", pady=(0, 16))
+
+        btn_box = tk.Frame(frame, bg=BG_DARK)
+        btn_box.pack(fill=tk.X)
+
+        def do_shutdown():
+            dialog.destroy()
+            self._execute_instant_shutdown()
+
+        btn_cancel = tk.Button(
+            btn_box,
+            text="Cancel",
+            font=("DejaVu Sans", 8, "bold"),
+            bg="#2c3e50",
+            fg=TEXT_WHITE,
+            activebackground="#34495e",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=12,
+            pady=4,
+            cursor="hand2",
+            command=dialog.destroy
+        )
+        btn_cancel.pack(side=tk.LEFT)
+
+        btn_confirm = tk.Button(
+            btn_box,
+            text="⚡ Shutdown Immediately",
+            font=("DejaVu Sans", 8, "bold"),
+            bg="#c0392b",
+            fg=TEXT_WHITE,
+            activebackground="#e74c3c",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=12,
+            pady=4,
+            cursor="hand2",
+            command=do_shutdown
+        )
+        btn_confirm.pack(side=tk.RIGHT)
+
+        dialog.grab_set()
+        btn_cancel.focus_set()
+
+    def _execute_instant_shutdown(self):
+        """Flush disk buffers and trigger fast poweroff bypassing inhibitor delays."""
+        # 1. Stop background telemetry safely
+        try:
+            self.collector.stop()
+        except Exception:
+            pass
+
+        # 2. Flush file write caches to prevent any disk corruption
+        try:
+            subprocess.run(["sync"], timeout=3)
+        except Exception:
+            pass
+
+        # 3. Trigger immediate poweroff ignoring delay inhibitors
+        try:
+            subprocess.Popen(["systemctl", "poweroff", "-i"])
+        except Exception:
+            try:
+                subprocess.Popen(["shutdown", "-h", "now"])
+            except Exception:
+                try:
+                    subprocess.Popen(["poweroff", "-f"])
+                except Exception:
+                    pass
+
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def on_close(self):
         self.collector.stop()
