@@ -12,3 +12,7 @@ widget.log
 # Operating System files
 .DS_Store
 Thumbs.db
+*.png
+*.deb
+*.tar.gz
+power_monitor_ubuntu_linux.zip

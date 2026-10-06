@@ -16,6 +16,8 @@ from typing import Optional
 from collector import CrashCollector, DEFAULT_LOG_PATH
 from analyze import TelemetryAnalyzer
 from predictor import CrashPredictor, CrashAssessment, relieve_memory_stress
+from stabilizer import VoltageStabilizer
+
 
 
 BG_DARK = "#151518"
@@ -36,8 +38,8 @@ class FloatingMonitorWidget:
         self.root.title("Power & Memory Health Monitor")
         
         # Dimensions & position
-        self.width = 330
-        self.height = 445
+        self.width = 345
+        self.height = 470
         self.pill_width = 300
         self.pill_height = 36
         self.is_minimized_to_pill = False
@@ -72,6 +74,10 @@ class FloatingMonitorWidget:
         self._flash_toggle = False
         self._relief_feedback = ""
         self._relief_feedback_expiry = 0.0
+
+        # Initialize Active Voltage & Transient Stabilizer Watchdog
+        self.stabilizer = VoltageStabilizer()
+
 
         self._build_ui()
         self.collector.start(run_in_background=True)
@@ -236,9 +242,38 @@ class FloatingMonitorWidget:
             bg=BG_DARK,
             fg=ACCENT_GREEN
         )
-        self.lbl_status.pack(anchor=tk.W, pady=(1, 3))
+        self.lbl_status.pack(anchor=tk.W, pady=(1, 2))
 
-        # --- 5. Stress Relief Button (Targeted Memory & Dirty Buffer Flush) ---
+        # --- 5. Active Voltage Stabilization Watchdog Strip ---
+        self.stab_frame = tk.Frame(self.body, bg=BG_DARK)
+        self.stab_frame.pack(fill=tk.X, pady=(1, 3))
+
+        self.btn_auto_stab = tk.Button(
+            self.stab_frame,
+            text="⚡ Auto-Stabilize: ON",
+            font=("DejaVu Sans", 7, "bold"),
+            bg="#1e3799",
+            fg=TEXT_WHITE,
+            activebackground="#4a69bd",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=6,
+            pady=1,
+            cursor="hand2",
+            command=self.toggle_auto_stabilize
+        )
+        self.btn_auto_stab.pack(side=tk.LEFT)
+
+        self.lbl_stab_status = tk.Label(
+            self.stab_frame,
+            text="Sag Guard (3.24V)",
+            font=("DejaVu Sans", 7),
+            bg=BG_DARK,
+            fg=TEXT_MUTED
+        )
+        self.lbl_stab_status.pack(side=tk.LEFT, padx=(6, 0))
+
+        # --- 6. Stress Relief Button (Targeted Memory & Dirty Buffer Flush) ---
         self.btn_relieve = tk.Button(
             self.body,
             text="🧹 Clear Memory & Relieve Stress",
@@ -255,41 +290,59 @@ class FloatingMonitorWidget:
         )
         self.btn_relieve.pack(fill=tk.X, pady=(2, 4))
 
-        # --- 6. Action Buttons ---
+        # --- 7. Action Buttons ---
         btn_frame = tk.Frame(self.body, bg=BG_DARK)
         btn_frame.pack(fill=tk.X, pady=(0, 0))
 
         btn_analyze = tk.Button(
             btn_frame,
-            text="📊 Analyze Logs",
+            text="📊 Analyze",
             font=("DejaVu Sans", 8, "bold"),
             bg="#24242d",
             fg=TEXT_WHITE,
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=8,
+            padx=6,
             pady=2,
             cursor="hand2",
             command=self.open_analysis_window
         )
         btn_analyze.pack(side=tk.LEFT)
 
+        btn_tune = tk.Button(
+            btn_frame,
+            text="⚙ OS Tune",
+            font=("DejaVu Sans", 8),
+            bg="#24242d",
+            fg=TEXT_WHITE,
+            activebackground="#30303b",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=6,
+            pady=2,
+            cursor="hand2",
+            command=self.on_apply_sysctl_profile
+        )
+        btn_tune.pack(side=tk.LEFT, padx=(4, 0))
+
         btn_hide = tk.Button(
             btn_frame,
-            text="Minimize to Pill",
+            text="─ Minimize",
             font=("DejaVu Sans", 8),
             bg="#24242d",
             fg=TEXT_MUTED,
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=8,
+            padx=6,
             pady=2,
             cursor="hand2",
             command=self.toggle_minimize_pill
         )
         btn_hide.pack(side=tk.RIGHT)
+
+
 
 
         # Mini Pill Widget (hidden by default)
@@ -564,7 +617,42 @@ class FloatingMonitorWidget:
                     fg=TEXT_WHITE
                 )
 
+            # --- Active Voltage & Transient Stabilization Watchdog ---
+            stab_res = self.stabilizer.check_and_stabilize(s)
+            if stab_res.get('action_taken'):
+                msg = stab_res.get('message', '')
+                self.lbl_stab_status.config(text=msg, fg=ACCENT_CYAN if not stab_res.get('is_throttled') else "#f39c12")
+            elif self.stabilizer.is_throttled:
+                self.lbl_stab_status.config(text="⚡ Clamped to 2.4GHz (Holding Safe Rail)", fg="#e67e22")
+            elif self.stabilizer.enabled:
+                self.lbl_stab_status.config(text="Sag Guard (3.24V)", fg=TEXT_MUTED)
+            else:
+                self.lbl_stab_status.config(text="Stabilizer Disabled", fg=TEXT_MUTED)
+
         self.root.after(1000, self._periodic_ui_update)
+
+    def toggle_auto_stabilize(self):
+        """Toggle active real-time voltage and transient watchdog."""
+        self.stabilizer.enabled = not self.stabilizer.enabled
+        if self.stabilizer.enabled:
+            self.btn_auto_stab.config(text="⚡ Auto-Stabilize: ON", bg="#1e3799")
+            self.lbl_stab_status.config(text="Sag Guard (3.24V)", fg=TEXT_MUTED)
+        else:
+            self.btn_auto_stab.config(text="⚡ Auto-Stabilize: OFF", bg="#3d3d4d")
+            self.lbl_stab_status.config(text="Stabilizer Disabled", fg=TEXT_MUTED)
+            if self.stabilizer.is_throttled:
+                self.stabilizer._set_cpu_max_freq(3400000)
+                self.stabilizer.is_throttled = False
+
+    def on_apply_sysctl_profile(self):
+        """Invoke GUI PolicyKit dialog to install kernel sysctl rules."""
+        import subprocess
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'apply_voltage_optimizations.sh')
+        try:
+            subprocess.Popen(['pkexec', script_path])
+            self.lbl_status.config(text="Prompting OS voltage tune via pkexec...", fg=ACCENT_CYAN)
+        except Exception:
+            self.lbl_status.config(text="Run: sudo ./apply_voltage_optimizations.sh", fg=ACCENT_YELLOW)
 
     def on_relieve_stress(self):
         """Execute multi-layer memory stress relief, dirty buffer flush, and heap trim."""
@@ -591,6 +679,7 @@ class FloatingMonitorWidget:
             self._periodic_ui_update()
         except Exception:
             pass
+
 
 
     def open_analysis_window(self):
