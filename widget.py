@@ -303,12 +303,11 @@ class FloatingMonitorWidget:
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=4,
-            pady=2,
+            pady=3,
             cursor="hand2",
             command=self.open_analysis_window
         )
-        btn_analyze.pack(side=tk.LEFT)
+        btn_analyze.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
 
         btn_tune = tk.Button(
             btn_frame,
@@ -319,44 +318,26 @@ class FloatingMonitorWidget:
             activebackground="#30303b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=4,
-            pady=2,
+            pady=3,
             cursor="hand2",
             command=self.on_apply_sysctl_profile
         )
-        btn_tune.pack(side=tk.LEFT, padx=(3, 0))
+        btn_tune.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 2))
 
         btn_shutdown = tk.Button(
             btn_frame,
-            text="🛑 Power",
+            text="🛑 Power Off",
             font=("DejaVu Sans", 8, "bold"),
             bg="#962d22",
             fg=TEXT_WHITE,
             activebackground="#c0392b",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
-            padx=5,
-            pady=2,
+            pady=3,
             cursor="hand2",
             command=self.on_quick_shutdown
         )
-        btn_shutdown.pack(side=tk.LEFT, padx=(3, 0))
-
-        btn_hide = tk.Button(
-            btn_frame,
-            text="─ Min",
-            font=("DejaVu Sans", 8),
-            bg="#24242d",
-            fg=TEXT_MUTED,
-            activebackground="#30303b",
-            activeforeground=TEXT_WHITE,
-            relief=tk.FLAT,
-            padx=4,
-            pady=2,
-            cursor="hand2",
-            command=self.toggle_minimize_pill
-        )
-        btn_hide.pack(side=tk.RIGHT)
+        btn_shutdown.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
 
 
 
