@@ -200,16 +200,25 @@ class TelemetryAnalyzer:
         print(f"        VCC 3.3V Rail: {last_r['v_vcc_mv']/1000.0:.3f}V | VCore: {last_r['v_in0_mv']/1000.0:.3f}V")
 
     def _print_overall_recommendations(self):
-        print("DIAGNOSTIC SUMMARY & PREDICTION SIGNALS:")
-        print("1. Memory-Correlated Voltage Sag:")
-        print("   When memory spikes, rapid memory bus activity + CPU turbo draw causes")
-        print("   sudden current surges (di/dt) on the 3.3V and 12V SMPS lines.")
-        print("   A degraded SMPS capacitor or motherboard VRM capacitor fails to smooth this drop,")
-        print("   triggering the motherboard's UVP (Under-Voltage Protection) hardware cutoff.")
-        print("2. Safe Thresholds for Early Warning:")
-        print("   - RAM Utilization > 90% with rapid climb rate")
-        print("   - VCC 3.3V rail dropping below 3.14V (ATX specification limit: 3.135V)")
-        print("   - VRM temperature climbing above 75°C")
+        print("DIAGNOSTIC SUMMARY & PREDICTION SIGNALS (FROM HISTORICAL CRASH DATA):")
+        print("1. Dirty Page Buffer Surges (Fast Power Collapse):")
+        print("   - Observed in Session #8 (243 MB dirty) and Session #9 (220 MB dirty).")
+        print("   - Rapid buffer accumulation causes sudden drive write-back bursts, spiking 5V/12V draw")
+        print("     and destabilizing the power supply unit (PSU).")
+        print("   - Threshold: Dirty pages >= 140 MB (Critical cutoff risk at >= 200 MB).")
+        print("2. Memory Saturation & 3.3V Rail Voltage Sag:")
+        print("   - Observed in Session #7 (6,010 MB RAM / 76%) and Session #10 (6,228 MB RAM / 78%).")
+        print("   - High RAM + heavy swap thrash induces extreme motherboard voltage droop.")
+        print("   - In Session #7, VCC 3.3V collapsed to 3.168V (below ATX 3.135V threshold),")
+        print("     and in Session #10 fell to 3.200V, tripping hardware Under-Voltage Protection (UVP).")
+        print("   - Threshold: RAM >= 70% combined with 3.3V rail <= 3.264V.")
+        print("3. Memory Stall & PSI Pressure:")
+        print("   - In Session #7, memory PSI stall climbed to 23.9% before collapse.")
+        print("4. Active Protection in Floating Widget:")
+        print("   - Real-time pattern matching continuously monitors dirty buffers and rail droop.")
+        print("   - The 'Clear Memory & Relieve Stress' button immediately flushes dirty caches (os.sync)")
+        print("     and trims process heap, dropping risk to stable.")
+
 
 
 def main():

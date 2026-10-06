@@ -19,9 +19,12 @@ A high-frequency, zero-overhead telemetry logger and floating desktop widget des
    - Storage usage: ~5.5 MB per 24 hours.
    - CPU usage: < 0.05% (no subprocess forks).
 
-3. **Floating Desktop Widget**:
+3. **Floating Desktop Widget with Imminent Crash Prediction**:
    - Modern, sleek dark UI showing live RAM utilization, CPU load, thermals, and power rails (plus laptop battery & AC status on Windows).
-   - Draggable header, pinned / unpinned (`📌` Always-on-Top), and minimizable to a mini "pill" (`[ ⚡ RAM: 72% | 42°C | 🔌 AC ]`).
+   - **Real-Time Crash Imminence Sentry**: Matches current telemetry against historical crash fingerprints (Sessions #8/#9 dirty bursts, Session #7 UVP droop, Session #10 memory saturation) and shows imminent failure risk score (0-100%) and matched precursors.
+   - **Emergency Memory Relief Button (`🧹 Clear Memory & Relieve Stress`)**: Flushes filesystem dirty page caches (`os.sync`), reclaims heap fragmentation (`malloc_trim`), and reduces stress before hardware power cutoff.
+   - Draggable header, pinned / unpinned (`📌` Always-on-Top), and minimizable to a mini "pill" (`[ ⚡ RAM: 72% | 42°C | 🔌 AC ]`) with pulsing alerts when risk is imminent.
+
 
 4. **Multi-Platform Support**:
    - **Linux**: Root directory scripts (`collector.py`, `widget.py`, `analyze.py`, `launch.sh`).

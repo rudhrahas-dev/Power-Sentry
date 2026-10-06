@@ -14,6 +14,7 @@ from typing import Optional
 
 from collector import WindowsCrashCollector, DEFAULT_LOG_PATH
 from analyze import TelemetryAnalyzer
+from predictor import CrashPredictor, CrashAssessment, relieve_memory_stress
 
 # Modern Windows 10 Dark Palette
 BG_DARK = "#151518"
@@ -42,7 +43,7 @@ class WindowsFloatingMonitorWidget:
 
         # Dimensions & position
         self.width = 330
-        self.height = 410  # Slightly taller to accommodate laptop battery status card
+        self.height = 460  # Sized to accommodate failure alert banner & stress relief button
         self.pill_width = 300
         self.pill_height = 36
         self.is_minimized_to_pill = False
@@ -69,9 +70,17 @@ class WindowsFloatingMonitorWidget:
         self.latest_sample = {}
         self.records_count = 0
 
+        # Initialize Crash Predictor & Historical Matcher
+        self.predictor = CrashPredictor(log_path=DEFAULT_LOG_PATH, window_size=30)
+        self.current_assessment: Optional[CrashAssessment] = None
+        self._flash_toggle = False
+        self._relief_feedback = ""
+        self._relief_feedback_expiry = 0.0
+
         self._build_ui()
         self.collector.start(run_in_background=True)
         self.root.after(1000, self._periodic_ui_update)
+
 
     def _build_ui(self):
         # Container
@@ -129,8 +138,32 @@ class WindowsFloatingMonitorWidget:
         self.root.bind("<Button-3>", self._show_context_menu)
 
         # Body Frame
-        self.body = tk.Frame(self.main_frame, bg=BG_DARK, padx=12, pady=8)
+        self.body = tk.Frame(self.main_frame, bg=BG_DARK, padx=12, pady=6)
         self.body.pack(fill=tk.BOTH, expand=True)
+
+        # --- 0. Real-time Crash Imminence & Failure Risk Alert Card ---
+        self.card_alert = tk.Frame(self.body, bg=BG_CARD, padx=8, pady=5, highlightthickness=1, highlightbackground="#2e2e3a")
+        self.card_alert.pack(fill=tk.X, pady=(0, 6))
+
+        self.lbl_alert_title = tk.Label(
+            self.card_alert,
+            text="● SYSTEM STABLE (0%)",
+            font=FONT_LABEL,
+            bg=BG_CARD,
+            fg=ACCENT_GREEN
+        )
+        self.lbl_alert_title.pack(anchor=tk.W)
+
+        self.lbl_alert_detail = tk.Label(
+            self.card_alert,
+            text="Normal telemetry margins. Calibrated to 9 past crashes.",
+            font=FONT_BODY,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            wraplength=300,
+            justify=tk.LEFT
+        )
+        self.lbl_alert_detail.pack(anchor=tk.W, pady=(1, 0))
 
         # --- 1. Memory Gauge ---
         lbl_mem_hdr = tk.Label(self.body, text="RAM UTILIZATION", font=FONT_LABEL, bg=BG_DARK, fg=TEXT_MUTED)
@@ -150,8 +183,8 @@ class WindowsFloatingMonitorWidget:
         self.lbl_mem_val.pack(anchor=tk.W)
 
         # --- 2. Laptop Battery & Power Status Card ---
-        card_power = tk.Frame(self.body, bg=BG_CARD, padx=8, pady=6, highlightthickness=1, highlightbackground="#2e2e3a")
-        card_power.pack(fill=tk.X, pady=(8, 0))
+        card_power = tk.Frame(self.body, bg=BG_CARD, padx=8, pady=5, highlightthickness=1, highlightbackground="#2e2e3a")
+        card_power.pack(fill=tk.X, pady=(5, 0))
 
         lbl_power_hdr = tk.Label(card_power, text="POWER SOURCE & BATTERY", font=FONT_LABEL, bg=BG_CARD, fg=TEXT_MUTED)
         lbl_power_hdr.pack(anchor=tk.W)
@@ -175,8 +208,8 @@ class WindowsFloatingMonitorWidget:
         self.lbl_battery_info.pack(anchor=tk.W)
 
         # --- 3. CPU & Thermal Load Card ---
-        card_thermal = tk.Frame(self.body, bg=BG_CARD, padx=8, pady=6, highlightthickness=1, highlightbackground="#2e2e3a")
-        card_thermal.pack(fill=tk.X, pady=(8, 0))
+        card_thermal = tk.Frame(self.body, bg=BG_CARD, padx=8, pady=5, highlightthickness=1, highlightbackground="#2e2e3a")
+        card_thermal.pack(fill=tk.X, pady=(5, 0))
 
         lbl_therm_hdr = tk.Label(card_thermal, text="CPU & THERMAL LOAD", font=FONT_LABEL, bg=BG_CARD, fg=TEXT_MUTED)
         lbl_therm_hdr.pack(anchor=tk.W)
@@ -207,15 +240,12 @@ class WindowsFloatingMonitorWidget:
             bg=BG_DARK,
             fg=ACCENT_GREEN
         )
-        self.lbl_status.pack(anchor=tk.W, pady=(8, 4))
+        self.lbl_status.pack(anchor=tk.W, pady=(4, 2))
 
-        # --- 5. Action Buttons ---
-        btn_frame = tk.Frame(self.body, bg=BG_DARK)
-        btn_frame.pack(fill=tk.X, pady=(2, 0))
-
-        btn_analyze = tk.Button(
-            btn_frame,
-            text="📊 Analyze Logs",
+        # --- 5. Stress Relief Button ---
+        self.btn_relieve = tk.Button(
+            self.body,
+            text="🧹 Clear Memory & Relieve Stress",
             font=FONT_LABEL,
             bg="#2c3e50",
             fg=TEXT_WHITE,
@@ -225,9 +255,30 @@ class WindowsFloatingMonitorWidget:
             padx=8,
             pady=3,
             cursor="hand2",
+            command=self.on_relieve_stress
+        )
+        self.btn_relieve.pack(fill=tk.X, pady=(1, 4))
+
+        # --- 6. Action Buttons ---
+        btn_frame = tk.Frame(self.body, bg=BG_DARK)
+        btn_frame.pack(fill=tk.X, pady=(0, 0))
+
+        btn_analyze = tk.Button(
+            btn_frame,
+            text="📊 Analyze Logs",
+            font=FONT_LABEL,
+            bg="#24242d",
+            fg=TEXT_WHITE,
+            activebackground="#30303b",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=8,
+            pady=2,
+            cursor="hand2",
             command=self.open_analysis_window
         )
         btn_analyze.pack(side=tk.LEFT)
+
 
         btn_hide = tk.Button(
             btn_frame,
@@ -437,18 +488,118 @@ class WindowsFloatingMonitorWidget:
             fan_str = f"{fan_rpm} RPM" if fan_rpm > 0 else "Auto / Embedded"
             self.lbl_mb_temps.config(text=f"Fan Speed: {fan_str}")
 
-            # Update Status
-            self.lbl_status.config(
-                text=f"● FLUSHED TO DISK: {self.records_count:,} samples ({self.records_count*64//1024} KB)"
-            )
+            # --- 1. Evaluate Imminent Crash Risk against Historical Crash Signatures ---
+            assessment = self.predictor.evaluate(s)
+            self.current_assessment = assessment
 
-            # Mini Pill text
+            # Update Alert Banner
+            if assessment.is_flashing:
+                self._flash_toggle = not self._flash_toggle
+                flash_bg = "#c0392b" if self._flash_toggle else "#781414"
+                self.card_alert.config(bg=flash_bg, highlightbackground="#e74c3c", highlightthickness=2)
+                self.lbl_alert_title.config(text=assessment.headline, bg=flash_bg, fg=TEXT_WHITE)
+                detail_text = " • ".join(assessment.matched_signatures[:2]) if assessment.matched_signatures else assessment.recommendation
+                self.lbl_alert_detail.config(text=detail_text, bg=flash_bg, fg="#ffcccc")
+            else:
+                border_col = assessment.color if assessment.risk_score >= 30 else "#2e2e3a"
+                self.card_alert.config(bg=BG_CARD, highlightbackground=border_col, highlightthickness=1)
+                self.lbl_alert_title.config(text=assessment.headline, bg=BG_CARD, fg=assessment.color)
+                if assessment.matched_signatures:
+                    detail_text = " • ".join(assessment.matched_signatures[:2])
+                else:
+                    detail_text = assessment.recommendation
+                detail_col = "#e67e22" if assessment.risk_score >= 50 else (TEXT_WHITE if assessment.risk_score >= 30 else TEXT_MUTED)
+                self.lbl_alert_detail.config(text=detail_text, bg=BG_CARD, fg=detail_col)
+
+            # Update Status & Relief Feedback
+            now = time.time()
+            if now < self._relief_feedback_expiry:
+                self.lbl_status.config(
+                    text=f"✓ {self._relief_feedback}",
+                    fg=ACCENT_CYAN
+                )
+                self.btn_relieve.config(
+                    text=f"✓ {self._relief_feedback}",
+                    bg="#27ae60",
+                    fg=TEXT_WHITE
+                )
+            else:
+                self.lbl_status.config(
+                    text=f"● FLUSHED TO DISK: {self.records_count:,} samples ({self.records_count*64//1024} KB)",
+                    fg=ACCENT_GREEN
+                )
+                if assessment.risk_score >= 75:
+                    btn_bg = "#e74c3c" if self._flash_toggle else "#962d22"
+                    self.btn_relieve.config(
+                        text="🚨 CRASH IMMINENT - RELIEVE STRESS NOW!",
+                        bg=btn_bg,
+                        fg=TEXT_WHITE
+                    )
+                elif assessment.risk_score >= 50:
+                    self.btn_relieve.config(
+                        text="⚠ Relieve Stress (Clear Memory & Sync)",
+                        bg="#d35400",
+                        fg=TEXT_WHITE
+                    )
+                else:
+                    self.btn_relieve.config(
+                        text="🧹 Clear Memory & Relieve Stress",
+                        bg="#2c3e50",
+                        fg=TEXT_WHITE
+                    )
+
+            # Mini Pill text & alert pulse
             pill_pwr = f"🔌 AC" if ac_online else f"🔋 {bat_pct}%"
-            self.lbl_pill_text.config(
-                text=f"⚡ RAM: {pct}% | CPU: {cpu_pct}% | {pill_pwr}"
-            )
+            if assessment.risk_score >= 75:
+                pill_bg = "#c0392b" if self._flash_toggle else "#661010"
+                self.pill_frame.config(bg=pill_bg, highlightbackground="#e74c3c")
+                self.lbl_pill_text.config(
+                    text=f"🚨 CRASH IMMINENT: {assessment.risk_score}% | {pill_pwr}",
+                    bg=pill_bg,
+                    fg=TEXT_WHITE
+                )
+            elif assessment.risk_score >= 50:
+                self.pill_frame.config(bg=BG_HEADER, highlightbackground="#e67e22")
+                self.lbl_pill_text.config(
+                    text=f"⚠ RISK {assessment.risk_score}% | RAM: {pct}% | {pill_pwr}",
+                    bg=BG_HEADER,
+                    fg="#e67e22"
+                )
+            else:
+                self.pill_frame.config(bg=BG_HEADER, highlightbackground=ACCENT_CYAN)
+                self.lbl_pill_text.config(
+                    text=f"⚡ RAM: {pct}% | CPU: {cpu_pct}% | {pill_pwr}",
+                    bg=BG_HEADER,
+                    fg=TEXT_WHITE
+                )
 
         self.root.after(1000, self._periodic_ui_update)
+
+    def on_relieve_stress(self):
+        """Execute multi-layer memory stress relief, working set trim, and buffer flush."""
+        res = relieve_memory_stress()
+        cleared_dirty = res.get('dirty_cleared_mb', 0)
+        gained_avail = res.get('avail_gained_mb', 0)
+
+        if cleared_dirty > 0:
+            msg = f"Flushed {cleared_dirty}MB Dirty Cache! Stress Relieved."
+        elif gained_avail > 0:
+            msg = f"Freed {gained_avail}MB RAM! Stress Relieved."
+        else:
+            msg = "Working Set Trimmed & Buffers Flushed!"
+
+        self._relief_feedback = msg
+        self._relief_feedback_expiry = time.time() + 6.0
+        self.btn_relieve.config(text=f"✓ {msg}", bg="#27ae60", fg=TEXT_WHITE)
+        self.lbl_status.config(text=f"✓ {msg}", fg=ACCENT_CYAN)
+
+        try:
+            fresh_sample = self.collector.sensors.sample()
+            self._on_sample_received(fresh_sample)
+            self._periodic_ui_update()
+        except Exception:
+            pass
+
 
     def open_analysis_window(self):
         """Open a detailed telemetry report window."""

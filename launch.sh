@@ -9,5 +9,8 @@ if [ -z "$DISPLAY" ] && [ -n "$WAYLAND_DISPLAY" ]; then
 fi
 
 export DISPLAY="${DISPLAY:-:1}"
+if [ -z "$XAUTHORITY" ] && [ -f "/run/user/$(id -u)/gdm/Xauthority" ]; then
+    export XAUTHORITY="/run/user/$(id -u)/gdm/Xauthority"
+fi
 
 exec python3 "$DIR/widget.py" "$@"
